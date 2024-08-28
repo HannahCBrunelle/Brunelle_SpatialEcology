@@ -82,6 +82,13 @@ View(daymet_data_Brewster_General_Store)
 #Adding a column labeled Brewster to identify the location for when they are all combined 
 daymet_data_Brewster_General_Store <- daymet_data_Brewster_General_Store %>% 
   mutate(label = "Brewster")
+###Cleaning the data set 
+daymet_data_Brewster_General_Store$prcp..mm.day. <- NULL
+daymet_data_Brewster_General_Store$srad..W.m.2. <- NULL
+daymet_data_Brewster_General_Store$swe..kg.m.2. <- NULL
+daymet_data_Brewster_General_Store$vp..Pa. <- NULL
+# View the cleaned data set
+View(daymet_data_Brewster_General_Store)
 
 #Mexico
 daymet_data_ChichénItzá <- read_csv("daymet_data_Chichén Itzá.csv")
@@ -89,6 +96,13 @@ View(daymet_data_ChichénItzá)
 #Adding a column labeled Mexico to identify the location for when they are all combined 
 daymet_data_ChichénItzá <- daymet_data_ChichénItzá %>% 
   mutate(label = "Mexico")
+###Cleaning the data set 
+daymet_data_ChichénItzá$prcp..mm.day. <- NULL
+daymet_data_ChichénItzá$srad..W.m.2. <- NULL
+daymet_data_ChichénItzá$swe..kg.m.2. <- NULL
+daymet_data_ChichénItzá$vp..Pa. <- NULL
+# View the cleaned data set
+View(daymet_data_ChichénItzá)
 
 #Canada
 daymet_data_DawsonCity <- read_csv("daymet_data_Dawson City.csv")
@@ -96,20 +110,58 @@ View(daymet_data_DawsonCity)
 #Adding a column labeled Brewster to identify the location for when they are all combined 
 daymet_data_DawsonCity <- daymet_data_DawsonCity %>% 
   mutate(label = "Canada")
+###Cleaning the data set 
+daymet_data_DawsonCity$prcp..mm.day. <- NULL
+daymet_data_DawsonCity$srad..W.m.2. <- NULL
+daymet_data_DawsonCity$swe..kg.m.2. <- NULL
+daymet_data_DawsonCity$vp..Pa. <- NULL
+# View the cleaned data set
+View(daymet_data_DawsonCity)
 
 ######Combining the three data sets into one
 data_all <- bind_rows(daymet_data_Brewster_General_Store, daymet_data_ChichénItzá, daymet_data_DawsonCity)
 #View the combined data set
 View(data_all)
 
-#####Delete all extra information (only need temp)
-#Couldn't get subset to work 
-data_all$prcp..mm.day. <- NULL
-data_all$srad..W.m.2. <- NULL
-data_all$swe..kg.m.2. <- NULL
-data_all$vp..Pa. <- NULL
-# View the cleaned data set
-View(data_all)
-
 ####I need to aggregate by Summer rows, group by year and calculate yearly averages
+#Filter the data for summer days (day 170 to 260)
+summer_data <- data_all[data_all$yday >= 170 & data_all$yday <= 260, ]
+#Check to make sure it worked
+view(summer_data)
 
+#Aggregate the data to calculate the average temperature for each year at each location
+average_summer_temp <- aggregate(tmax..deg.c. ~ year + label, data = summer_data, FUN = mean)
+#Check to make sure it worked
+view(average_summer_temp)
+
+#Using colorblind friendly colors 
+install.packages("RColorBrewer")
+library(RColorBrewer)
+#Looking at the color codes
+display.brewer.all()
+
+#Using ggplot (geomsmooth) to plot the summer average yearly temps 
+#label is location 
+#Using the data set with calculated averages
+summerplot <- ggplot(data = average_summer_temp, aes(x = year, y = tmax..deg.c., color = label, group = label)) +
+  geom_smooth(size = 1) +  # Adds lines to the plot
+  labs(title = "Average Summer Temperature by Year and Location",
+       x = "Year",
+       y = "Average Temperature (°C)",
+       color = "Location") +
+  scale_color_brewer(palette = "PiYG") 
+
+#Look at plot
+print(summerplot)
+
+#Save the plot
+#Confirmed that the plot was saved in the appropriate file
+ggsave(filename = "average_summer_temperature.png", plot = summerplot, width = 10, height = 6, dpi = 300)
+
+#####Answers to #6 Questions
+#Canada's summer averages have always been significantly colder compared to Mexico/near the equator.
+#Canada's summers have seen a gradual increase in 1980 and has been at a steady temperature (approx.).
+#Mexico/Southern areas saw a slight decrease in summer averages from 1990-2000 but then increased slowly and has remained steady since 2010.
+#The most increase of average summer temperatures were seen in Massachusetts. There has been a steady increase since 1990. 
+#In summary I would say that based off of this plot that there has been minimal change in Mexico and Canada over the last 15 years. However, Massachusetts summers have been getting hotter.
+#I would calculate some statistical tests, I believe a t-test examining the statistical significance between locations would be beneficial.  
