@@ -21,7 +21,7 @@ library(tidyverse)
 #Getting the path
 getwd()
 
-#Creating a data frame with 2 columns (Name & Address) and 3 locations 
+#Creating a data frame with 2 columns (Location & Address) 
 Locations <- data.frame(
   id = 1:3,
   Location = c("Dawson City", "Brewster General Store", "Chichén Itzá"),
@@ -36,9 +36,9 @@ Locations <- data.frame(
 #Printing the data frame 
 print(Locations)
 
-#Add the long. & lat. to the data frame
+#Add the long. & lat. to the data frame using geocode
 Locations <- Locations %>%
-  geocode(address = Address, method = 'osm')  # You can also use 'census', 'geocodio', etc.
+  geocode(address = Address, method = 'osm')  
 
 #Printing the new data frame
 print(Locations)
@@ -48,21 +48,21 @@ write.csv(Locations, "Locations.csv", row.names = FALSE)
 
 #Download Climate Data from DaymetR
 #Using Loop through each row of the data frame
-for (i in seq_len(nrow(Locations))) {  # seq_len ensures it handles empty data frames
+for (i in seq_len(nrow(Locations))) { 
   # Extract the site details
   site <- Locations$Location[i]
-  lat <- as.numeric(Locations$lat[i])  # Explicitly convert to numeric
-  lon <- as.numeric(Locations$long[i]) # Explicitly convert to numeric
+  lat <- as.numeric(Locations$lat[i])  #convert to numeric
+  lon <- as.numeric(Locations$long[i]) #convert to numeric
   
 #Print site information for debugging
   print(paste("Processing:", site, "at", lat, lon))
   
-#Download Daymet data (climate data) for the each location from 1980 to 2022
+#Download Daymet data (climate data) for the each location from 1980 to 2020
   climate_data <- download_daymet(
     lat = lat,
     lon = lon,
     start = 1980,
-    end = 2022,
+    end = 2020,
     silent = TRUE
   )
   
@@ -107,7 +107,7 @@ View(daymet_data_ChichénItzá)
 #Canada
 daymet_data_DawsonCity <- read_csv("daymet_data_Dawson City.csv")
 View(daymet_data_DawsonCity)
-#Adding a column labeled Brewster to identify the location for when they are all combined 
+#Adding a column labeled Canada to identify the location for when they are all combined 
 daymet_data_DawsonCity <- daymet_data_DawsonCity %>% 
   mutate(label = "Canada")
 ###Cleaning the data set 
@@ -123,7 +123,6 @@ data_all <- bind_rows(daymet_data_Brewster_General_Store, daymet_data_ChichénIt
 #View the combined data set
 View(data_all)
 
-####I need to aggregate by Summer rows, group by year and calculate yearly averages
 #Filter the data for summer days (day 170 to 260)
 summer_data <- data_all[data_all$yday >= 170 & data_all$yday <= 260, ]
 #Check to make sure it worked
@@ -165,3 +164,32 @@ ggsave(filename = "average_summer_temperature.png", plot = summerplot, width = 1
 #The most increase of average summer temperatures were seen in Massachusetts. There has been a steady increase since 1990. 
 #In summary I would say that based off of this plot that there has been minimal change in Mexico and Canada over the last 15 years. However, Massachusetts summers have been getting hotter.
 #I would calculate some statistical tests, I believe a t-test examining the statistical significance between locations would be beneficial.  
+
+#Extra
+#Filter the data for winter days (day 60 to 350)
+winter_data <- data_all[data_all$yday >= 60 & data_all$yday <= 350, ]
+#Check to make sure it worked
+view(winter_data)
+
+#Aggregate the data to calculate the average temperature for each year at each location
+average_winter_temp <- aggregate(tmax..deg.c. ~ year + label, data = winter_data, FUN = mean)
+#Check to make sure it worked
+view(average_winter_temp)
+
+#Using ggplot (geomsmooth) to plot the summer average yearly temps 
+#label is location 
+#Using the data set with calculated averages
+winterplot <- ggplot(data = average_winter_temp, aes(x = year, y = tmax..deg.c., color = label, group = label)) +
+  geom_smooth(size = 1) +  # Adds lines to the plot
+  labs(title = "Average Winter Temperature by Year and Location",
+       x = "Year",
+       y = "Average Temperature (°C)",
+       color = "Location") +
+  scale_color_brewer(palette = "PiYG") 
+
+#Look at plot
+print(winterplot)
+
+#Save the plot
+#Confirmed that the plot was saved in the appropriate file
+ggsave(filename = "average_winter_temperature.png", plot = winterplot, width = 10, height = 6, dpi = 300)
