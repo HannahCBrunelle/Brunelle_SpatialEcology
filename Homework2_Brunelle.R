@@ -9,19 +9,17 @@ install.packages("geodata")
 install.packages("raster")
 install.packages("sf")
 install.packages("rnaturalearth")
-install.packages("rnaturalearthdata")
 
 #Read in needed packages 
 library(geodata)
-library(terra)
 library(raster)
 library(sf)
 library(rnaturalearth)
-library(rnaturalearthdata)
-library(dplyr)
 library(ggplot2)
-library(tidyverse)
+library(dplyr)
+library(terra)
 
+##############Number 1####################
 #Get the path
 getwd()
 
@@ -31,12 +29,16 @@ download_path <- "/Users/hannahbrunelle/Desktop/SpatialEcology/climate/wc2.1_5m"
 #Getting info on worldclim data
 ?worldclim_global
 
-#Specify the resolution that I want 
-resolution <- 5
-
 #Download the bioclimatic variables (BioClim) from WorldClim
-wc_data <- worldclim_global(var = "bio", res = resolution, path = download_path)
+bioclimVars <- geodata::worldclim_global(country = "AUS", res = 5, var = "bio", path="/Users/hannahbrunelle/Desktop/SpatialEcology/climate/wc2.1_5m")
 
+# check the data
+bioclimVars# class, variable measurements of precipitation and temperature 
+class(bioclimVars)# plot the stack
+plot(bioclimVars)
+
+
+##############Number 2####################
 #Load the individual bioclimatic variables
 bio10 <- raster(file.path(download_path, "wc2.1_5m_bio_10.tif"))  # Mean Temperature of Warmest Quarter
 bio11 <- raster(file.path(download_path, "wc2.1_5m_bio_11.tif"))  # Mean Temperature of Coldest Quarter
@@ -44,89 +46,132 @@ bio18 <- raster(file.path(download_path, "wc2.1_5m_bio_18.tif"))  # Precipitatio
 bio19 <- raster(file.path(download_path, "wc2.1_5m_bio_19.tif"))  # Precipitation of Coldest Quarter
 
 #Create a raster stack with the selected variables
-bio_stack <- stack(bio10, bio11, bio18, bio19)
+bio_climVars_Stack <- stack(bio10, bio11, bio18, bio19)
 
 #Print the plot (the whole world)
-plot(bio_stack)
+plot(bio_climVars_Stack)
+plot(bio10)
 
-#This allows me to obtain the shapefile for Australia
-####I am hoping that I am doing this correct. I am still a little confused regarding the extent 
-australia_shape <- ne_countries(scale = "medium", country = "Australia", returnclass = "sf")
+#download shape of Australia
+ausPoly <- st_read("/Users/hannahbrunelle/Desktop/aus")# plot the data
+plot(ausPoly)
 
-#Transforming the shape of Australia to the same CRS as the raster stack
-australia_shape <- st_transform(australia_shape, crs(bio_stack))
+st_crs(ausPoly)
 
-#Crop and mask the raster stack to Australia - masking the rest of the world
-bio_stack_australia <- mask(crop(bio_stack, australia_shape), australia_shape)
+# Filter to keep only Australia
+ausPoly <- ausPoly[ausPoly$NAME == "Australia", ]
+# Plot the filtered shapefile
+plot(ausPoly, main="Australia Only")
 
-#Plot the cropped raster stack
-plot(bio_stack_australia)
+st_crs(ausPoly)
 
+# select points that fall within the sw polygon
+grass.aus <- try(sf::st_intersection(austral_grass_tree_records.sf, AusPolyProj))
+
+# transform the data
+AusPolyProj <- st_transform(ausPoly, 4326)
+st_crs(AusPolyProj)
+
+#plot the data using ggplot
+ggplot() +
+  geom_sf(data = AusPolyProj) +
+  geom_sf(data = grass.aus, aes(color = year)) +
+  theme_minimal()
+
+# spatial extent of Australia
+#ausExt <- rnaturalearth::ne_countries(scale = "medium", #returnclass = "sf") %>%
+#  filter(name == "Australia")
+# extent using coordinates
+ausExt <- c(110, 155, -45, -10)
+# crop the data to the extent of Australia
+ausBioclim <- terra::crop(bio10, ausExt)
+# plot the stack
+plot(ausBioclim)
+
+# mask the data to the extent of the swPoly polygon
+ausBioclimMasked <- terra::crop(ausBioclim, AusPolyProj, mask=T)
+ausBioclimMasked <- terra::crop(ausBioclim, AusPolyProj, mask=T)
+
+# plot the stack
+plot(ausBioclimMasked)
+
+# extract the values for the karri records
+grass.bioclim <- terra::extract(ausBioclimMasked, grass.aus, cells=TRUE)
+# check the data
+head(grass.bioclim)# summarize the extracted data. Any NAs?
+summary(grass.bioclim)
+
+# add the raster values to the karri.sw object
+grass.aus <- cbind(grass.aus, grass.bioclim)
+
+##############Number 3####################
 #Download occurrence records for Xanthorrhoea australis and cleaning the data
 austral_grass_tree_records <- geodata::sp_occurrence(genus="Xanthorrhoea",
-                                species= "australis",
-                                download=T,
-                                geo=T, #Only has records with coordinates
-                                removeZeros = T) #Removes errors in the data
+                                                     species= "australis",
+                                                     download=T,
+                                                     geo=T, #Only has records with coordinates
+                                                     removeZeros = T) #Removes errors in the data
 
-#check the data
-class(austral_grass_tree_records)   
-#check the dimensions
-dim(austral_grass_tree_records) 
-#see how many records from different datasets
+
+# check the data
+class(austral_grass_tree_records)
+# check the dimensions
+dim(austral_grass_tree_records)#  
+# see how many records from different datasets
 table((austral_grass_tree_records$datasetName)) #where did these come from
 
-#check which CRS(s) the data is in
+# check which CRS(s) the data is in
 unique(austral_grass_tree_records$geodeticDatum) #what is the CRS because we need this before we can make into a SF (spatial) 
-#4326 #WGS84 
+
+# use dplyr::select to select only the columns we need
+austral_grass_tree_records.sf <- austral_grass_tree_records %>%
+  select(acceptedScientificName, institutionCode, year, lat, lon)
 
 # convert to sf object
-austral_grass_tree_records.sf <- st_as_sf(austral_grass_tree_records, 
-                                          coords = c("lon", "lat"), 
-                                          crs = 4326,   # WGS84 coordinate system and assigning the crs
-                                          remove = FALSE)  # Keep original coordinate columns
+austral_grass_tree_records.sf <- sf::st_as_sf(austral_grass_tree_records.sf, coords = c("lon", "lat"))
+
+# assign CRS information
+sf::st_crs(austral_grass_tree_records.sf) <- 4326 #WGS84
+st_crs(austral_grass_tree_records.sf) <- 4326
+
 #Print the data
 print(austral_grass_tree_records.sf)
 
-#use dplyr::select to select only the columns we need 
-#I had to include lat and lon because it needed geographic coordinates to run
-austral_grass_tree_records.sf <- austral_grass_tree_records.sf %>%
-  select(acceptedScientificName,institutionCode, year,lon, lat)
-#Print the data
-print(austral_grass_tree_records.sf)
+# remove duplicates
+austral_grass_tree_records.sf <- austral_grass_tree_records.sf[!duplicated(austral_grass_tree_records.sf),]
+# Remove records with invalid years
+austral_grass_tree_records.sf <- austral_grass_tree_records.sf[!is.na(austral_grass_tree_records.sf$year) & austral_grass_tree_records.sf$year > 1900 & austral_grass_tree_records.sf$year <= as.numeric(format(Sys.Date(), "%Y")), ]
 
-#Save shapefile to a specific directory
-st_write(austral_grass_tree_records.sf, "/Users/hannahbrunelle/Desktop/SpatialEcology/austral_grass_tree_records1.shp")
-
-
-######################Help
-# plot the data # this one work but I cannot get the bio10 in the background
+# plot the data
 world <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
 ggplot() +
-  geom_sf(data = AUSPoly) +
+  geom_sf(data = world) +
   geom_sf(data = austral_grass_tree_records.sf, aes(color = year)) +
   theme_minimal()
 
-# polygon for Australia
-AUSPoly <- australia_shape # plot the data
-plot(AUSPoly)
-plot(AUSPoly, add = TRUE)
 
-# select points that fall within the AUS polygon
-austral_grass_tree_records.sf <- try(sf::st_intersection(austral_grass_tree_records.sf, AUSPoly))
-# determine the CRS of AUSPoly
-st_crs(AUSPoly)
+library(colorRamps)
+plot(bio10Proj, col=rgb.tables(1000), alpha=0.5) # alpha  sets transparency
+plot(aus, add=T) # add the polygon
 
-# transform the data
-AUSPoly <- st_transform(AUSPoly, 4326)
-bio10 <- st_transform(bio10, 4326)
-crs(bio10) <- st_crs(4326)$proj4string
-crs(bio10)
 
-####no different color per year and no bio10 in the background
-ggplot() +
-  geom_sf(data = AUSPoly) +
-  geom_sf(data = austral_grass_tree_records.sf, aes(color = year()) +
-  theme_minimal())
+#Troubleshooting because the plot was not working but the crs was not assigned
+class(austral_grass_tree_records.sf)
+st_geometry(austral_grass_tree_records.sf)
 
+
+
+
+
+
+
+
+
+
+
+
+# Save the sf object as a shapefile # append overwrite the old shapefile
+st_write(occurrence_sf, "xanthorrhoea_australis_cleaned.shp", append = FALSE)
+
+##############Number 4####################
 
