@@ -2,7 +2,7 @@
 #Date: September 10, 2024
 #Hannah C Brunelle
 #Contact: hannahb7@umbc.edu
-#Resources used: ChatGPT
+#Resources used: ChatGPT, class activity from Week 2 and GitHub Copilot 
 
 #Install packages
 install.packages("geodata")
@@ -32,7 +32,7 @@ download_path <- "/Users/hannahbrunelle/Desktop/SpatialEcology/climate/wc2.1_5m"
 #Download the bioclimatic variables (BioClim) from WorldClim
 bioclimVars <- geodata::worldclim_global(country = "AUS", res = 5, var = "bio", path="/Users/hannahbrunelle/Desktop/SpatialEcology/climate/wc2.1_5m")
 
-# check the data
+#check the data
 bioclimVars# class, variable measurements of precipitation and temperature 
 class(bioclimVars)# plot the stack
 plot(bioclimVars)
@@ -57,9 +57,9 @@ plot(ausPoly)
 #Check the CRS for the polygon
 st_crs(ausPoly)
 
-# Filter to keep only Australia
+#Filter to keep only Australia
 ausPoly <- ausPoly[ausPoly$NAME == "Australia", ]
-# Plot the filtered shapefile
+#Plot the filtered shapefile
 plot(ausPoly, main="Australia Only")
 
 ##############Number 3####################
@@ -70,29 +70,29 @@ austral_grass_tree_records <- geodata::sp_occurrence(genus="Xanthorrhoea",
                                                      geo=T, #Only has records with coordinates
                                                      removeZeros = T) #Removes errors in the data
 
-# check the data
+#check the data
 class(austral_grass_tree_records)
-# check the dimensions
+#check the dimensions
 dim(austral_grass_tree_records)#  
-# see how many records from different datasets
+#see how many records from different datasets
 table((austral_grass_tree_records$datasetName)) #where did these come from
 
-# convert to sf object
+#convert to sf object
 austral_grass_tree_records.sf <- sf::st_as_sf(austral_grass_tree_records.sf, coords = c("lon", "lat"))
 
-# Remove duplicates
+#Remove duplicates
 austral_grass_tree_records.sf <- austral_grass_tree_records.sf[!duplicated(austral_grass_tree_records.sf),]
-# Remove records with invalid years
+#Remove records with invalid years
 austral_grass_tree_records.sf <- austral_grass_tree_records.sf[!is.na(austral_grass_tree_records.sf$year) & austral_grass_tree_records.sf$year > 1900 & austral_grass_tree_records.sf$year <= as.numeric(format(Sys.Date(), "%Y")), ]
 
-# use dplyr::select to select only the columns we need
+#use dplyr::select to select only the columns we need
 austral_grass_tree_records.sf <- austral_grass_tree_records %>%
   select(acceptedScientificName, institutionCode, year, lat, lon)
 
 #Print the data
 print(austral_grass_tree_records.sf)
 
-# check which CRS(s) the data is in
+#check which CRS(s) the data is in
 unique(austral_grass_tree_records$geodeticDatum) #what is the CRS because we need this before we can make into a SF (spatial) 
 
 #transform to the same CRS as the auspoly object
@@ -102,7 +102,7 @@ austral_grass_tree_records.Transformed <- st_transform(austral_grass_tree_record
 st_write(austral_grass_tree_records.Transformed, "/Users/hannahbrunelle/Desktop/austral_grass_tree_records.shp")
 # Convert to 2D 
 austral_grass_tree_records.Transformed_2D <- st_zm(austral_grass_tree_records.Transformed, drop = TRUE)
-# Write to shapefile - Have to overwrite this because it saved it beofre
+#Write to shapefile - Have to overwrite this because it saved it before
 st_write(austral_grass_tree_records.Transformed_2D, "/Users/hannahbrunelle/Desktop/austral_grass_tree_records.shp", append = FALSE)
 
 ##############Number 4####################
@@ -110,7 +110,7 @@ st_crs(ausPoly) #9001
 st_crs(austral_grass_tree_records.Transformed) #9001
 st_crs(bio_climVars_Stack) #9122
 
-# transform the data
+#transform the data
 AusPolyProj <- st_transform(ausPoly, 4326)
 st_crs(AusPolyProj) #9001 check
 austral_grass_tree_records.Transformed <- st_transform(austral_grass_tree_records.sf, 4326)
@@ -125,40 +125,40 @@ ausBioclim <- terra::crop(rast(bio_climVars_Stack), ausExt)
 plot(ausBioclim)
 
 #####Plot that has the bioclimatic data (bio 10) and the grass tree records by year of Australia#####
-# Create a color ramp for the years
+#Create a color ramp for the years
 colors <- colorRampPalette(c("blue", "red"))(length(unique(austral_grass_tree_records.sf$year)))
-# Match colors to the years in your data
+#Match colors to the years in the data
 year_colors <- colors[as.factor(austral_grass_tree_records.sf$year)]
-# Plot the raster
+#Plot the raster
 plot(ausBioclim$wc2.1_5m_bio_10)
-# Add points with colors based on years
+#Add points with colors based on years
 plot(st_geometry(austral_grass_tree_records.sf), col = year_colors, add = TRUE)
-# Add a title to the plot
+#Add a title to the plot
 title(main = "Mean temperature and grass tree occurance by year in Australia", line= 3)
 
 #Bio10 to a GEOTIFF
-# Define the file path for the output GeoTIFF
+#Define the file path for the output GeoTIFF
 output_file <- "/Users/hannahbrunelle/Desktop/SpatialEcology/output_file_bio10.tif"
-# Save the raster layer as a GeoTIFF
+#Save the raster layer as a GeoTIFF
 writeRaster(ausBioclim$wc2.1_5m_bio_10, output_file, overwrite=TRUE, gdal=c("COMPRESS=NONE", "TFW=YES"), datatype='INT1U')
-# Check if the file was successfully saved
+#Check if the file was successfully saved
 file.exists("/Users/hannahbrunelle/Desktop/SpatialEcology/output_file_bio10.tif")
-# Read the GeoTIFF file
+#Read the GeoTIFF file
 saved_raster <- rast("/Users/hannahbrunelle/Desktop/SpatialEcology/output_file_bio10.tif")
-# Print the raster object to check its details
+#Print the raster object to check its details
 print(saved_raster)
-# Plot the raster to verify its contents visually
+#Plot the raster to verify its contents visually
 plot(saved_raster)
 
 ##############Number 5####################
 #Make a plot with bio_climVars_Stack and austral_grass_tree_records.sf
 plot(ausBioclim)
 
-# Extract bioclimatic values for species occurrence points
+#Extract bioclimatic values for species occurrence points
 species_bioclim <- extract(ausBioclim, austral_grass_tree_records.sf)
 plot(species_bioclim)
 
-# Make a scatterplot of the extracted bioclimatic values
+#Make a scatterplot of the extracted bioclimatic values
 ggplot(data = species_bioclim, aes(x = wc2.1_5m_bio_10, y = wc2.1_5m_bio_11)) +
   geom_point() +
   xlab("Mean Temperature of Warmest Quarter") +
@@ -198,21 +198,69 @@ plot(ausBioclim)
 installed.packages("rasterize")
 library(rasterize)
 library(terra)
+library(sf)
 
-# Ensure the species data is in a compatible format
-species_occurrence <- vect(austral_grass_tree_records.sf)
+#####Attempting with terra::rasterize#####
+#Convert sf object to SpatVector
+austral_grass_tree_vect <- vect(austral_grass_tree_records.sf)
+class(austral_grass_tree_vect)
 
-# Use ext() to get the extent of the species occurrence data
-occurrence_extent <- ext(species_occurrence)
-occurrence_extent
+#Define extent manually based on the known extent of Australia
+aus_extent <- ext(aus_extent <- ext(112, 155, -44, -9) ) 
 
-# Create a template raster with the same extent and desired resolution
-template_raster <- rast(occurrence_extent, resolution = 0.01, crs = crs(species_occurrence))
+#Create a template raster with 5-minute resolution (1/12 degree)
+r_template <- rast(extent = aus_extent, 
+                   resolution = 1/12,  # 5 arc-minutes in degrees
+                   crs = "EPSG:4326")  # Assuming coordinates are in WGS84
 
+#Rasterize the points to count the number of records in each cell
+count_raster <- rasterize(austral_grass_tree_vect, r_template, fun = "length")
 
-# Rasterize the species occurrence points
-# Assigning a value of 1 to presence points, and background as NA
-species_raster <- rasterize(species_occurrence, template_raster, field = NULL, fun = "sum", background = NA)
-plot(species_raster)
+#Plot the resulting raster with ausPoly in the background
+plot(count_raster)
 
-#####I hope this works
+#Convert the count_raster to a data frame for ggplot
+count_raster_df <- as.data.frame(count_raster, xy = TRUE, na.rm = TRUE)
+
+# Plot the raster with ausPoly in the background
+ggplot() +
+  # Plot the raster counts using geom_tile
+  geom_tile(data = count_raster_df, aes(x = x, y = y, fill = V1_length)) +
+  scale_fill_viridis_c(option = "plasma", name = "Record Counts") +  # Optional: change color palette
+  coord_equal() +
+  theme_minimal() +
+  labs(title = "Xanthorrhoea australis GBIF Records in 5' Grid Cells",
+       x = "Longitude", y = "Latitude") +
+  
+  # Plot the Australia polygon using geom_sf
+  geom_sf(data = ausPoly, fill = NA, color = "black", size = 0.2) 
+
+#####Attempting with manually#####
+# Convert sf object to SpatVector
+austral_grass_tree_vect <- vect(austral_grass_tree_records.sf)
+
+# Create a template raster with the same extent and resolution as the occurrence data
+cell_ids <- cellFromXY(r_template, terra::crds(austral_grass_tree_vect))
+
+# Count the number of occurrences for each unique cell
+cell_counts <- table(cell_ids)
+class(cell_counts)
+
+# Create a raster with counts, using the cell IDs
+count_raster <- r_template
+values(count_raster) <- 0  # Initialize all cells to zero
+
+# Create a numeric vector of cell counts that matches the raster cells
+# Ensure that the vector length matches the number of raster cells
+count_values <- numeric(ncell(count_raster))  # Initialize with zeros
+
+# Assign counts to the corresponding cells
+count_values[as.numeric(names(cell_counts))] <- as.numeric(cell_counts)
+cell_values <- as.numeric(cell_counts)  
+
+# Assign counts to the corresponding cells
+count_raster[cell_counts] <- cell_values
+
+#check the raster
+head(count_raster)
+summary(count_raster)
