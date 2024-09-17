@@ -30,6 +30,7 @@ download_path <- "/Users/hannahbrunelle/Desktop/SpatialEcology/climate/wc2.1_5m"
 ?worldclim_global
 
 #Download the bioclimatic variables (BioClim) from WorldClim
+#####Note that the country argument is not used in the worlclim_global function#####
 bioclimVars <- geodata::worldclim_global(country = "AUS", res = 5, var = "bio", path="/Users/hannahbrunelle/Desktop/SpatialEcology/climate/wc2.1_5m")
 
 #check the data
@@ -38,6 +39,8 @@ class(bioclimVars)# plot the stack
 plot(bioclimVars)
 
 ##############Number 2####################
+#####These are already loaded as part of the bioclimVars object, so you only 
+#####need to subset it - see solution#####
 #Load the individual bioclimatic variables
 bio10 <- raster(file.path(download_path, "wc2.1_5m_bio_10.tif"))  # Mean Temperature of Warmest Quarter
 bio11 <- raster(file.path(download_path, "wc2.1_5m_bio_11.tif"))  # Mean Temperature of Coldest Quarter
@@ -78,7 +81,16 @@ dim(austral_grass_tree_records)#
 table((austral_grass_tree_records$datasetName)) #where did these come from
 
 #convert to sf object
-austral_grass_tree_records.sf <- sf::st_as_sf(austral_grass_tree_records.sf, coords = c("lon", "lat"))
+#####This line of code fails because the object does not exist#####
+#austral_grass_tree_records.sf <- sf::st_as_sf(austral_grass_tree_records.sf, coords = c("lon", "lat"))
+
+austral_grass_tree_records.x <- austral_grass_tree_records %>%
+  select(acceptedScientificName, institutionCode, year, lat, lon)
+
+austral_grass_tree_records.sf <- sf::st_as_sf(austral_grass_tree_records.x, coords = c("lon", "lat"))
+
+# need to define CRS
+st_crs(austral_grass_tree_records.sf) <- 4326
 
 #Remove duplicates
 austral_grass_tree_records.sf <- austral_grass_tree_records.sf[!duplicated(austral_grass_tree_records.sf),]
@@ -86,8 +98,10 @@ austral_grass_tree_records.sf <- austral_grass_tree_records.sf[!duplicated(austr
 austral_grass_tree_records.sf <- austral_grass_tree_records.sf[!is.na(austral_grass_tree_records.sf$year) & austral_grass_tree_records.sf$year > 1900 & austral_grass_tree_records.sf$year <= as.numeric(format(Sys.Date(), "%Y")), ]
 
 #use dplyr::select to select only the columns we need
-austral_grass_tree_records.sf <- austral_grass_tree_records %>%
-  select(acceptedScientificName, institutionCode, year, lat, lon)
+####Here you overwrite the original sf object because you are subsetting the wrong object#####
+####It is easier if you select teh columns before creating the spatial object#####
+#austral_grass_tree_records.sf <- austral_grass_tree_records %>%
+#  select(acceptedScientificName, institutionCode, year, lat, lon)
 
 #Print the data
 print(austral_grass_tree_records.sf)
@@ -99,6 +113,7 @@ unique(austral_grass_tree_records$geodeticDatum) #what is the CRS because we nee
 austral_grass_tree_records.Transformed <- st_transform(austral_grass_tree_records.sf, 9001)
 
 #save the sf file as a shapefile - it says it was 3D so making it into 2D
+#####Not sure why that would have been the case#####
 st_write(austral_grass_tree_records.Transformed, "/Users/hannahbrunelle/Desktop/austral_grass_tree_records.shp")
 # Convert to 2D 
 austral_grass_tree_records.Transformed_2D <- st_zm(austral_grass_tree_records.Transformed, drop = TRUE)
@@ -125,6 +140,10 @@ ausBioclim <- terra::crop(rast(bio_climVars_Stack), ausExt)
 plot(ausBioclim)
 
 #####Plot that has the bioclimatic data (bio 10) and the grass tree records by year of Australia#####
+
+#####Check the assignment - the plot needed to be in the original CRS of the 
+#####australia and NZ data#####
+
 #Create a color ramp for the years
 colors <- colorRampPalette(c("blue", "red"))(length(unique(austral_grass_tree_records.sf$year)))
 #Match colors to the years in the data
@@ -187,6 +206,10 @@ ggplot(data = species_bioclim, aes(x = wc2.1_5m_bio_11, y = wc2.1_5m_bio_19)) +
   ggtitle("Bioclimatic Variables for Xanthorrhoea australis Occurrence Points")
 
 ####Answers to Number 5
+
+#####Check the solution here - you need to compare the cliamte of the records to
+#####the broader climate of Australia#####
+
 #The scatterplots show the relationship between different bioclimatic variables for the occurrence points of Xanthorrhoea australis.
 #I only use the BioStack data so I examined the temperatures and precipitation of the warmest and coldest quarters.
 #First scatterplot inidcates that the grass prefers the middle temperatures in the warmest quarter and the coldest (~12 degrees C to 20 degrees C).
