@@ -95,7 +95,7 @@ cor <- correlog(x = coords_clean[,1],
                 resamp = 1000)
 plot(cor)
 
-#Using terra::distance() to calcualte the distances
+#Using terra::distance() to calculate the distances
 library(terra)
 pairwise_distances <- terra::distance(valid_points)
 max_distance <- max(pairwise_distances) #the max distance 
@@ -144,12 +144,10 @@ plot(cor)
 
 #Answers to Questions:
 #The correct increment for my correlogram is 184951.9 (based on line 102). 
-#When playing around with the increments, when I making the increments larger, the 
-#correlogram becomes less detailed and more linear. When I make the increments smaller,
-#the correlogram becomes more detailed and shows variation in the line. 
+#When I made the increments larger, the correlogram became less detailed with points and when I made the increments smaller,
+#the correlogram became more detailed and showed more variation in the line. 
 #The correlogram is showing that generally there is a positive correlation between the abundance of 
-#Carolina Wrens and the distance between the points. This means that Carolina Wrens generally cluster
-#in groups, rather than being random/evenly distributed. When the samples are randomized, the correlogram has a
+#Carolina Wrens and the distance between the points. When the samples are randomized, the correlogram has a
 #flatter line around 0.0 and then remains negative for the distance, with a steep drop off. (I tested this by changing the "regular" code to "random" code in line 32 and then reran the code until line 111)
 
 ##############Number 4####################
@@ -177,7 +175,6 @@ v <- variogram(abundance_clean ~ 1, data = data_sf)
 plot(v)
 
 #Answers to questions
-#The variogram is showing that the abundance pattern of the Carolina Wrens is isotropic. 
-#Isotropic means that the abundance of the birds are the same in all directions.
-#To avoid autocorrelation in the next Carolina Wren study, the sample sites should be the at least the maximum distance apart.
+#The variogram is showing that the abundance of the Carolina Wrens is isotropic due to the fact that the variogram doesn't show any directions.
+#To avoid autocorrelation in the next Carolina Wren study, the sample sites should be apart at least the maximum distance.
 #This should allow for more randomized samples and less autocorrelation.
