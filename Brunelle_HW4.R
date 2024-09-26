@@ -204,9 +204,6 @@ ppp_pattern <- ppp(x = stems_final$gx,
 #Plot the point pattern
 plot(ppp_pattern, main = "Spatial Pattern of Tree Species", cols = rainbow(length(levels(stems_final$sp))))
 
-#Subset the point pattern by species
-species_patterns <- split(ppp_pattern)
-
 #Plot G-Function for each species
 plot(alltypes(ppp_pattern, "G"))
 plot(alltypes(ppp_pattern, "G", envelope = T)) #add the envelope
