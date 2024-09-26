@@ -30,6 +30,17 @@ plot(tif_masked, main = "Masked Carolina Wren Abundance") #checking to see it wo
 
 # Sample points from the masked raster
 sampled_points <- spatSample(tif_masked, size = 500, method = "regular", as.points = TRUE, na.rm = TRUE)
+
+##### NOTE: The number of sampled points is << than 500
+# Because you sampled the raster and not only within the extent of
+# the drawn_area (as shown on the HW handout), you ended up with << 500 points.
+# This is likely to greatly impact the rest of the analyses, but we'll see 
+# what happens. All that said, I don't know what you used for your "drawn_area".
+
+# also note that after masking, the new and original rasters have the same extent
+ext(tif)
+ext(tif_masked)
+
 # Plot the sampled points
 points(sampled_points, col = "red", pch = 16)
 
@@ -56,7 +67,7 @@ points(valid_points, col = "grey", pch = 16)  # Plot only valid sampling points
 
 ##############Number 3####################
 #Install Package
-install.packages("ncf")
+#install.packages("ncf")
 #Read in needed packages
 library(ncf)
 
@@ -66,6 +77,9 @@ library(ncf)
 # Use terra::crds to get the coordinates from valid_points
 coords <- terra::crds(valid_points)
 coords
+
+##### NOTE: Again, it should have been apparent here as well that your code
+# produced only a few dozen points instead of the ~500 we were aiming for.
 
 #This Correlogram was not working due to a mismatch in row #'s between coords and abundance_values[, 2]
 cor <- correlog(x = coords[,1], 
@@ -147,7 +161,12 @@ plot(cor)
 #When I made the increments larger, the correlogram became less detailed with points and when I made the increments smaller,
 #the correlogram became more detailed and showed more variation in the line. 
 #The correlogram is showing that generally there is a positive correlation between the abundance of 
-#Carolina Wrens and the distance between the points. When the samples are randomized, the correlogram has a
+#Carolina Wrens and the distance between the points. 
+
+##### NOTE: You are answer here reflects the fact that too few sample points were used. Please
+# check the solution.
+
+#When the samples are randomized, the correlogram has a
 #flatter line around 0.0 and then remains negative for the distance, with a steep drop off. (I tested this by changing the "regular" code to "random" code in line 32 and then reran the code until line 111)
 
 ##############Number 4####################
@@ -178,3 +197,5 @@ plot(v)
 #The variogram is showing that the abundance of the Carolina Wrens is isotropic due to the fact that the variogram doesn't show any directions.
 #To avoid autocorrelation in the next Carolina Wren study, the sample sites should be apart at least the maximum distance.
 #This should allow for more randomized samples and less autocorrelation.
+
+##### Please see the solution.
