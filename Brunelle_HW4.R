@@ -1,15 +1,16 @@
 #Spatial Ecology - Homework #4 
-#Date: September 24, 2024
+#Date: September 26, 2024
 #Hannah C Brunelle
 #Contact: hannahb7@umbc.edu
 #Resources used: ChatGPT, GitHub Copilot, 
 #Class activity on Sept. 19, 2024 
 
+#######ALL INTERPRETATIONS ARE IN A SEPERATE DOCUMENT#######
+
 #Install packages
 install.packages("spatstat")
-
-#Read in needed packages 
 library(spatstat)
+
 ########Number 1########
 #1 - Complete Spatial Randomness (CRS)
 #The Poisson distribution is a discrete probability distribution that expresses 
@@ -154,13 +155,16 @@ plot(f_segregated, main="F-Function for Segregated Point Pattern")
 f_segregated_mc <- envelope(segregated, Fest,correction="none", nsim=99)
 plot(f_segregated_mc, main="F-Function Envelope for Segregated Point Pattern")
 
-###Interpretations of the G-, K-, and F- tests are in a seperate document 
+###Interpretations of the G-, K-, and F- tests are in a separate document 
 
 ##########Number 3##########
 #Read in the data
 library(readr)
 stems2014 <- read_csv("stems2014.csv")
 View(stems2014)
+
+#Read in packages
+library(dplyr)
 
 #Check the data
 head(stems2014)
@@ -169,3 +173,40 @@ View(stems2014)
 str(stems2014)
 names(stems2014)
 
+#Subset based on spatial extents
+stems_subset <- stems2014 %>%
+  filter(gx >= 600 & gx <= 700, gy >= 400 & gy <= 500)
+
+#Identify the four most abundant species
+Abundant_species <- stems_subset %>%
+  group_by(sp) %>%
+  tally(sort = TRUE) %>%
+  top_n(4, wt = n) %>%
+  pull(sp)
+
+#Subset data to retain only these species
+stems_final <- stems_subset %>%
+  filter(sp %in% Abundant_species)
+
+#Convert species to a factor with appropriate levels
+stems_final$sp <- factor(stems_final$sp, levels = unique(stems_final$sp))
+class(stems_final)
+
+#Define the window based on the spatial extents
+spatial_window <- owin(xrange = c(600, 700), yrange = c(400, 500))
+
+#Create the multivariate point pattern with species as the mark
+ppp_pattern <- ppp(x = stems_final$gx, 
+                   y = stems_final$gy, 
+                   window = spatial_window, 
+                   marks = stems_final$sp)
+
+#Plot the point pattern
+plot(ppp_pattern, main = "Spatial Pattern of Tree Species", cols = rainbow(length(levels(stems_final$sp))))
+
+#Subset the point pattern by species
+species_patterns <- split(ppp_pattern)
+
+#Plot G-Function for each species
+plot(alltypes(ppp_pattern, "G"))
+plot(alltypes(ppp_pattern, "G", envelope = T)) #add the envelope
