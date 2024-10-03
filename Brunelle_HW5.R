@@ -94,36 +94,34 @@ ggplot() +
   geom_sf(data = grassTree.sf, aes(color = acceptedScientificName)) +
   theme_minimal()
 
-#Remove spatial duplicates then and transform the points to the same CRS as the raster
-grassTree.sf <- st_transform(grassTree.sf, crs = crs(AUS))
-#Find duplicate cell numbers
-dups <- duplicated(grassTree.sf)
-#Keep only one record per climate grid cell and remove the duplicates
-grassTree.sf <- grassTree.sf[!dups,]
+##### Data Cleaning Steps #####
+#Filter out points collected before 1990
+grassTree.sf <- grassTree.sf %>%
+  filter(dateIdentified >= as.Date("1990-01-01"))
 
 #Filter points with coordinate uncertainty less than or equal to 10,000 meters (10 km)
 grassTree.sf <- grassTree.sf %>% 
   filter(coordinateUncertaintyInMeters <= 10000)
 
-#Filter out points collected before 1990
-grassTree.sf <- grassTree.sf %>%
-  filter(dateIdentified >= as.Date("1990-01-01"))
-
 #Transform the CRS of the grassTree_filtered to match that of the bioRasts.aus raster
-grassTree_filtered <- st_transform(grassTree.sf, crs = st_crs(bioRasts.aus))
+grassTree.sf <- st_transform(grassTree.sf, crs = st_crs(bioRasts.aus))
 # Verify the CRS transformation
-crs(grassTree_filtered)
+crs(grassTree.sf)
 crs(bioRasts.aus)
+# check dimensions of bradypus
+dim(grassTree.sf)
+# Next, we want to extract the environmental values at each
+# of the occurrence locations.
+grassTree.sf <- terra::extract(bioRasts.aus, grassTree.sf, cells=TRUE, xy=TRUE) %>%
+  # remove spatial duplicates
+  distinct(cell, .keep_all = TRUE)
+head(grassTree.sf)
+dim(grassTree.sf)
 
 #Check how many observations are in grassTree_filtered 
 num_observations <- nrow(grassTree_filtered)
-#Print the result - Observations are 963 but supposed to be ~500
+#Print the result - Observations are 234 but supposed to be ~500
 print(paste("Number of observations in grassClim:", num_observations))
-
-#Plot one of the bioclimatic rasters (for example, bio2) to make sure cleaning worked
-plot(bioRasts.aus[[1]], main = "GrassTree Points on Bioclimatic Raster")
-#Add the transformed grassTree_filtered points
-plot(st_geometry(grassTree_filtered), add = TRUE, col = "red", pch = 16, cex = 0.6)
 
 ####Question 1 : How would you expect the resolution of a raster to influence the number of spatial duplicates? 
 #Answer:The resolution of a raster is the amount of detail that is captured in the raster so the lower the resolution the 
