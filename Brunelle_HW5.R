@@ -97,11 +97,11 @@ ggplot() +
 ##### Data Cleaning Steps #####
 #Filter out points collected before 1990
 grassTree.sf <- grassTree.sf %>%
-  filter(dateIdentified >= as.Date("1990-01-01"))
+  filter(eventDate >= as.Date("1990-01-01"))
 
 #Filter points with coordinate uncertainty less than or equal to 10,000 meters (10 km)
 grassTree.sf <- grassTree.sf %>% 
-  filter(coordinateUncertaintyInMeters <= 10000)
+  filter(coordinateUncertaintyInMeters < 10000)
 
 #Transform the CRS of the grassTree_filtered to match that of the bioRasts.aus raster
 grassTree.sf <- st_transform(grassTree.sf, crs = st_crs(bioRasts.aus))
@@ -119,8 +119,8 @@ head(grassTree.sf)
 dim(grassTree.sf)
 
 #Check how many observations are in grassTree_filtered 
-num_observations <- nrow(grassTree_filtered)
-#Print the result - Observations are 234 but supposed to be ~500
+num_observations <- nrow(grassTree.sf)
+#Print the result - Observations are 535 
 print(paste("Number of observations in grassClim:", num_observations))
 
 ####Question 1 : How would you expect the resolution of a raster to influence the number of spatial duplicates? 
@@ -130,58 +130,68 @@ print(paste("Number of observations in grassClim:", num_observations))
 #the cell sizes are smaller and the points are more likely to be in their own distinct cells. 
 
 #####Number 4#####
-#Extract bioclimatic vars at the grass tree locations
-grassClim <- terra::extract(bioRasts.aus, grassTree_filtered)
+# Ensure the object is an sf object, assuming 'lon' and 'lat' are the coordinate columns
+if (!inherits(grassTree.sf, "sf")) {
+  grassTree.sf <- st_as_sf(grassTree.sf, coords = c("x", "y"), crs = 4326)
+}
+
+# Now extract the coordinates
+coords <- sf::st_coordinates(grassTree.sf)
+
+# Convert to a data frame with x and y columns
+coords_df <- data.frame(x = coords[, 1], y = coords[, 2])
+
+# Perform the extraction with terra
+grassClim <- terra::extract(bioRasts.aus, coords_df)
+
 #Check for NA values
 summary(grassClim)
+
 #Remove NA values
 grassClim <- grassClim[complete.cases(grassClim),]
 #Combine the bioclimatic data with the original occurrence data
-grassTree_with_bioclim <- cbind(grassTree_filtered, grassClim)
+grassTree_with_bioclim <- cbind(grassTree.sf, grassClim)
 #Check the combined data
 head(grassTree_with_bioclim)
 class(grassTree_with_bioclim)
 
 #####Number 5#####
-#Define the extent of the raster
-raster_extent <- ext(bioRasts.aus)
-#Define the number of random background points to generate
-n_background_points <- 10000  # You can adjust this number as needed
-set.seed(123)  # For reproducibility
-# Extract coordinates from the extent
-background_points <- st_as_sf(data.frame(
-  x = runif(n_background_points, min = xmin(raster_extent), max = xmax(raster_extent)),
-  y = runif(n_background_points, min = ymin(raster_extent), max = ymax(raster_extent))
-), coords = c("x", "y"), crs = st_crs(bioRasts.aus))
+## ---- Create background (pseudo-absence) data --------------------------------
+# Generate 10,000 random background points within Australia
+set.seed(123) # For reproducibility
+background_points <- terra::spatSample(bioRasts.aus, size = 10000, method = "random", xy = TRUE, as.df = TRUE)
+class(background_points)
 
-#Making sure the CRS is correct for all data points
-crs(bioRasts.aus)
-crs(grassTree_filtered)
-crs(background_points)
-crs(grassTree_with_bioclim)
+# Convert background points to sf object with appropriate CRS
+background_points.sf <- st_as_sf(background_points, coords = c("x", "y"), crs = st_crs(bioRasts.aus))
+st_crs(background_points.sf) <- 4326
+crs(background_points.sf)
 
-#Check the background points summary again
-summary(background_points)
+# Extract the coordinates from the geometry column of the sf object
+background_coords <- sf::st_coordinates(background_points.sf)
 
-#Check the generated background points
-head(background_points)
+# Extract the bioclimatic values at each of the background point locations
+background_bioclim <- terra::extract(bioRasts.aus, background_coords)
 
-#Extract bioclimatic variables for the background points
-background_bioclim <- terra::extract(bioRasts.aus, background_points)
-# Combine the background points with the extracted bioclimatic variables
-background_bioclim_data <- cbind(background_points, background_bioclim)
+#Combine the occurrence data (grassTree_with_bioclim) with the background points
+SDM_data <- dplyr::bind_rows(grassTree_with_bioclim, background_bioclim)
 
-#Check the combined data
-head(background_bioclim_data)
-class(background_bioclim_data)
-View(background_bioclim_data)
-plot(background_bioclim_data)
+SDM_data <- data.frame(rbind(grassTree_with_bioclim, background_bioclim))
+
+# Check the combined dataset
+head(SDM_data)
+dim(SDM_data)
 
 #####Number 6#####
 library(usdm)
 
 # Convert to a data frame and keep only the bioclimatic variables
-bioclim_vars <- as.data.frame(st_drop_geometry(background_bioclim_data[, grep("bio", names(background_bioclim_data))]))
+# Select only the bioclimatic variables from the combined background data
+bioclim_vars <- st_drop_geometry(SDM_data) %>%
+  dplyr::select(starts_with("bio")) 
+# Check the structure to ensure only numeric bioclimatic variables are selected
+str(bioclim_vars)
+class(bioclim_vars)
 
 # Variance Inflation Factor (VIF)
 # Variable selection using VIF
@@ -193,15 +203,5 @@ remVars <- vifstep(bioclim_vars)@excluded
 SDMbioclim <- bioclim_vars[,-which(names(bioclim_vars) %in% remVars)]
 
 #####Number 7#####
-# Create 5 random folds (k = 5) for partitioning
-set.seed(123)  # Setting seed for reproducibility
 
-# k-fold cross-validation partitioning
-bv.kfold <- ENMeval::get.randomkfold(occs=grassTree_filtered,
-                                     bg=background_bioclim_data,
-                                     k=5) 
-
-# look at the structure, etc
-str(bv.kfold)
-table(bv.kfold$bg.grp)
 
