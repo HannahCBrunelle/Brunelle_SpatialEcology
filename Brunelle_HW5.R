@@ -159,7 +159,7 @@ class(grassTree_with_bioclim)
 ## ---- Create background (pseudo-absence) data --------------------------------
 # Generate 10,000 random background points within Australia
 set.seed(123) # For reproducibility
-background_points <- terra::spatSample(bioRasts.aus, size = 10000, method = "random", xy = TRUE, as.df = TRUE)
+background_points <- terra::spatSample(bioRasts.aus, size = 10000, method = "random", xy = TRUE, as.df = TRUE, na.rm = TRUE)
 class(background_points)
 
 # Convert background points to sf object with appropriate CRS
@@ -175,8 +175,6 @@ background_bioclim <- terra::extract(bioRasts.aus, background_coords)
 
 #Combine the occurrence data (grassTree_with_bioclim) with the background points
 SDM_data <- dplyr::bind_rows(grassTree_with_bioclim, background_bioclim)
-
-SDM_data <- data.frame(rbind(grassTree_with_bioclim, background_bioclim))
 
 # Check the combined dataset
 head(SDM_data)
@@ -203,5 +201,96 @@ remVars <- vifstep(bioclim_vars)@excluded
 SDMbioclim <- bioclim_vars[,-which(names(bioclim_vars) %in% remVars)]
 
 #####Number 7#####
+set.seed(896)
+
+# Extract coordinates (as a matrix) from the sf object
+xyPres <- st_coordinates(grassTree.sf)
+# Extract background point coordinates
+xyBg <- sf::st_coordinates(background_points.sf)
+
+# k-fold cross-validation partitioning
+bv.kfold <- ENMeval::get.randomkfold(occs=xyPres,
+                                     bg=xyBg,
+                                     k=5)
+# look at the structure, etc
+str(bv.kfold)
+table(bv.kfold$occs.grp)
+
+# plot the data
+evalplot.grps(pts=xyPres, pts.grp=bv.kfold$occs.grp, envs=stack(bioRasts))
+
+#spatial block partition: checkerboard
+bv.spBlock <- get.checkerboard1(occs=xyPres, envs=stack(bioRasts), 
+                       bg=xyBg, 
+                         aggregation.factor=100)
+
+# Check results and visualize the block partitions
+evalplot.grps(pts=xyPres, pts.grp=bv.spBlock$occs.grp, envs=stack(bioRasts))
+
+# make life a little easier
+selTrainTest <- as.numeric(unlist(bv.kfold))
+
+# create a training dataset
+sdmData.train <- subset(SDMbioclim, selTrainTest != 1)
+dim(sdmData.train)# Fit Mahalanobis model
+
+# create a testing dataset
+sdmData.test <- subset(SDMbioclim, selTrainTest <= 1)
+dim(sdmData.test)
+
+#####There were no geometry points or "x and y" columns so I added the geometry back in using SDM_data
+# Get row numbers for training and testing sets
+train_rows <- which(selTrainTest != 1)
+test_rows <- which(selTrainTest == 1)
+
+# Re-add the geometry to the training set
+sdmData.train.sf <- SDM_data[train_rows, ]
+str(sdmData.train.sf) #Check the structure of the training set
+class(sdmData.train.sf) #Check the class of the training set
+# Re-add the geometry to the testing set
+sdmData.test.sf <- SDM_data[test_rows, ]
+str(sdmData.train.sf) #Check the structure of the training set
+class(sdmData.train.sf) #Check the class of the training set
+
+# Plot the training and testing data to ensure it worked
+plot(st_geometry(sdmData.train.sf), col = "blue")
+plot(st_geometry(sdmData.test.sf), add = TRUE, col = "red")
+
+######Number 8######
+# Create the base map with the raster layer
+# Plot the raster layer first (bio2)
+plot(bioRasts.aus$bio2, main = "Training and Testing Points on Bioclimatic Raster")
+# Add background points in green
+plot(st_geometry(background_points.sf), col = rgb(0, 1, 0, alpha = 0.3), add = TRUE, pch = 24, cex = 0.5)
+# Add training points in blue
+plot(st_geometry(sdmData.train.sf), col = "blue", add = TRUE, pch = 21, cex = 1.5)
+# Add testing points in red
+plot(st_geometry(sdmData.test.sf), col = "red", add = TRUE, pch = 22, cex = 1.5)
+# Add a legend outside the plot area
+legend(x = 115, y = -10,  # Move it outside the plot
+       legend = c("Training", "Testing", "Background"), 
+       col = c("blue", "red", rgb(0, 1, 0, alpha = 0.3)),  # Make sure the col vector is complete
+       pch = c(21, 22, 24),  # Include the pch for the Background
+       pt.cex = 1.5, 
+       bty = "o", 
+       cex = 1.2)
+
+######Number 9######
+?mahal
+
+#Confused on what i am doing wrong. I am trying to run a Mahalanobis distance analysis on the training data and the bioclimatic rasters
+#I really don't know what i am doing wrong because there are no xy coordinates in my 
+
+# terra to raster
+biorast.mm <- raster(bioRasts)
+class(biorast.mm)
+
+bioRasts.nobiome <- subset(biorast.mm, "biome", negate = TRUE)
+#Error: Error: [subset] invalid name(s)
+
+#Run a Mahalanobis distance analysis on the training data and the bioclimatic rasters
+mahal_model <- mahal(stack(bioRast.mm), #rasterstack
+                    xyPres) # Exclude longitude and latitude columns
+#Error in solve.default(var(x)): system is computationally singular: reciprocal condition number = 7.78766e-18
 
 
