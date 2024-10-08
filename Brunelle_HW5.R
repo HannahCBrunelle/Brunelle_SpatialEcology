@@ -282,15 +282,18 @@ legend(x = 115, y = -10,  # Move it outside the plot
 #I really don't know what i am doing wrong because there are no xy coordinates in my 
 
 # terra to raster
-biorast.mm <- raster(bioRasts)
+biorast.mm <- raster(bioRasts.aus)
 class(biorast.mm)
 
-bioRasts.nobiome <- subset(biorast.mm, "biome", negate = TRUE)
-#Error: Error: [subset] invalid name(s)
+#estimate mahalanobis distances on presence only training data (ignore bg)
+mahal_model <- mahal(stack(biorast.mm), # raster stack
+                  coords) #presence-only data
 
-#Run a Mahalanobis distance analysis on the training data and the bioclimatic rasters
-mahal_model <- mahal(stack(bioRast.mm), #rasterstack
-                    xyPres) # Exclude longitude and latitude columns
-#Error in solve.default(var(x)): system is computationally singular: reciprocal condition number = 7.78766e-18
+#then do prediction (takes appreciably longer)
+mahal_predict <- raster::predict(stack(biorast.mm), # raster stack
+                                 mahal_model, # model
+                                 progress='text')
+plot(mahal_predict)
+points(coords[, 1], coords[, 2], col = 'red', pch = 19) # Adjust 'red' and 'pch' as needed
 
 
