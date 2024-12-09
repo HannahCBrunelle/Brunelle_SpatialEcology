@@ -1,0 +1,343 @@
+---
+title: "Brunelle_MaxEntLesserC"
+author: "Hannah Brunelle"
+date: "2024-12-09"
+output: word_document
+---
+
+#Final Project
+#Assessing variables that may impact the distribution of invasive plants in Maryland
+#Hannah Brunelle
+
+#Note that this code can be used as a stand alone or with PlantsCombined.R and MaxEntFortuneS.R
+
+```{r}
+#Load the necessary libraries for this assignment
+library(sf)
+install.packages("sf")
+library(dplyr)
+install.packages("dplyr")
+library(rnaturalearth)
+library(ggplot2)
+library(terra)
+install.packages("terra")
+library(ENMeval) # for k-fold cross-validation
+library(dismo)
+library(predicts)# maxent & sdm evaluation
+library(geodata)
+library(usdm) # for sdm
+library(soilDB) # for soil data
+```
+
+```{r}
+## -----Download and Prepare Species Data------------------
+#Data(INaturalist) 
+#Lesser Celandine (Ficaria verna)
+#Download Data 
+LesserC <- read.csv("/Users/hannahbrunelle/Desktop/LesserC.csv")
+
+#Clean dataset for Lesser Celandine
+LesserCleaned <- LesserC[ , c("id", "longitude", "latitude", "observed_on", "positional_accuracy", "scientific_name")] %>%
+  # Remove rows with "Ficaria verna ficariiformis" and others
+  filter(scientific_name != "Ficaria verna ficariiformis" &
+           scientific_name != "Ficaria verna bulbilifera" &
+           scientific_name != "Ficaria verna calthifolia" &
+           scientific_name != "Ficaria verna chrysocephala" &
+           scientific_name != "Ficaria verna fertilis" &
+           scientific_name != "Ficaria verna verna") %>%
+  # Remove low positional accuracy records
+  filter(positional_accuracy < 100) %>%
+  # Remove records before 2000
+  filter(observed_on > 2000) %>%
+  # Remove duplicates
+  distinct(longitude, latitude, .keep_all = TRUE) %>%
+  # Remove rows with missing values in coordinates
+  filter(!is.na(longitude) & !is.na(latitude)) %>%
+  # Convert to sf object
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+#Load the U.S. boundaries
+usa <- rnaturalearth::ne_countries(country = "United States of America", returnclass = "sf")
+#Exclude Alaska and Hawaii based on their geographic coordinates
+usa <- st_crop(usa, xmin = -125, xmax = -66, ymin = 24, ymax = 50)
+# Retain only the geometry column
+usa <- usa["geometry"]
+
+#Plot the lower 48 states to confirm
+ggplot(data = usa) +
+  geom_sf() +
+  theme_minimal() +
+  labs(title = "United States (Lower 48)")
+
+#Plot the Lesser Celandine data- World
+world1 <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+ggplot() +
+  geom_sf(data = world1) +
+  geom_sf(data = LesserCleaned, aes(color = scientific_name)) +
+  theme_minimal()
+
+#Ensure the CRS matches between datasets
+LesserCleaned <- st_transform(LesserCleaned, st_crs(usa))
+
+#Select points that fall within the United States
+LesserCleaned <- sf::st_intersection(LesserCleaned, usa)
+
+#Plot the Lesser Celandine data - United States
+ggplot() +
+  geom_sf(data = usa, fill = "gray80", color = "white") +
+  geom_sf(data = LesserCleaned, color = "cyan3", size = 0.5) +  
+  theme_minimal() +
+  labs(title = "Lesser Celandine Data Points within the United States")
+```
+
+```{r}
+## -----Prepare the predictors (raster stack)----------------------
+#The following workflow is as follows: 
+# 1. Download the bioclimatic variables and crop that raster to the United States polygon 
+# 2. Download the human influence data and crop that raster to the United States polygon with the bioclimatic variables 
+# 3. Download soil data for the United States and crop that data to the United States polygon with the bioclimatic and human influence data
+
+# 1. Download the bioclimatic variables and crop that raster to the United States polygon
+#Download the bioclim variables from worldclim with resolution of 5
+bioRasts <- worldclim_global(var="bio", res=5, path=getwd())
+
+#Plot bio_1 to have a look at the data
+plot(bioRasts[[1]])
+
+#Check the CRS of the rasters
+terra::crs(bioRasts, describe=T)
+#Rename the layers for convenience
+names(bioRasts) <- paste0("bio", 1:19)
+
+#Make a raster stack containing these bioclimatic variables:
+#Bio10: mean temperature of warmest quarter
+#Bio11: mean temperature of coldest quarter 
+#Bio16: precipitation of wettest quarter 
+#Bio17: precipitation of driest quarter
+bioRasts <- subset(bioRasts, c("bio10", "bio11", "bio16", "bio17"))
+
+#This is just to make sure I can get the data to plot to the world before cropping 
+#Load a global land boundaries shapefile
+world <- st_as_sf(rnaturalearth::ne_countries(scale = "medium", returnclass = "sf"))
+#Check CRS of the world shapefile, which should match the CRS of bioRasts
+crs(world, describe = TRUE)
+#Transform the world boundaries to the CRS of the bioclim rasters if they differ
+world <- st_transform(world, crs = st_crs(bioRasts))
+#Crop the raster stack to the outline of the world
+bioRasts.world <- crop(bioRasts, world, mask = TRUE)
+#Plot the cropped raster stack
+plot(bioRasts.world)
+
+#Check the CRS of the bioclim rasters
+terra::crs(bioRasts, describe=T)
+#Check CRS of the shapefile
+crs(usa, describe=T)
+#Transform usa to CRS as the bioclim rasters
+usa <- st_transform(usa, crs = st_crs(bioRasts))
+#Check the CRS of the shapefile
+st_crs(usa)
+#Check the class
+class(usa)
+
+#Crop the raster stack to the outline of the United States
+bioRasts.usa <- crop(bioRasts, usa, mask = TRUE)
+#Plot the cropped raster stack
+plot(bioRasts.usa)
+#Class 
+class(bioRasts.usa)
+
+# 2. Download the human influence data and crop that raster to the United States polygon with the bioclimatic variables
+#Load human impact raster
+HI <- rast("/Users/hannahbrunelle/Desktop/hii-n-america-geo-grid/hii_n_america_grid/hii_n_amer")
+#plot the raster
+plot(HI)
+
+#Check the CRS of the rasters
+crs(HI) #4008
+crs(bioRasts.usa) #4326
+#Re project the human influence raster to match the bioclimatic raster
+HI <- project(HI, bioRasts.usa)
+crs(HI) #4326
+
+#Check to make sure the resolution matches
+res(HI) == res(bioRasts.usa)  # Resolution match
+#Crop HI to match the extent of bioRasts.usa
+HI <- crop(HI, bioRasts.usa)
+#Mask to strictly include the United States
+HI <- mask(HI, usa)
+
+#Add HI to the bioRasts.usa raster stack
+names(HI) <- "human_influence"
+bioRasts.usa <- c(bioRasts.usa, HI)
+
+#Verify that HI was added 
+names(bioRasts.usa) #good
+plot(bioRasts.usa) #it worked! 
+
+#Reorder the layers so "human_influence" is the first
+bioRasts.usa <- bioRasts.usa[[c("human_influence", names(bioRasts.usa)[names(bioRasts.usa) != "human_influence"])]]
+
+#Verify the new order
+names(bioRasts.usa)
+plot(bioRasts.usa)
+
+# 3. Download soil data for the United States and crop that data to the United States polygon with the bioclimatic and human influence data
+?soilDB
+
+#Set the soil data to the United States
+query <- "
+SELECT TOP 100000 m.mukey, c.cokey, h.chkey, h.hzname, h.hzdept_r, h.hzdepb_r, h.ph1to1h2o_r
+FROM mapunit m
+JOIN component c ON m.mukey = c.mukey
+JOIN chorizon h ON c.cokey = h.cokey
+WHERE h.ph1to1h2o_r IS NOT NULL;
+"
+
+# Fetch data using SDA_query
+us_soil_data <- SDA_query(query)
+
+#Check the soil data
+head(us_soil_data)
+str(us_soil_data)
+class(us_soil_data)
+```
+
+```{r}
+##----Combine the raster and occurrence data all together ----
+###CRS all match due to the steps that occurred earlier 
+#Lesser Celandine and BioRasts.usa
+#Verify the CRS are the same
+crs(LesserCleaned)
+crs(bioRasts.usa)
+#Check dimensions
+dim(LesserCleaned)
+
+#Extract the environmental values at each of the occurrence locations.
+LesserCleaned <- terra::extract(bioRasts.usa, LesserCleaned, cells=TRUE, xy=TRUE) %>%
+  #remove spatial duplicates
+  distinct(cell, .keep_all = TRUE)
+
+#Check the data
+head(LesserCleaned)
+dim(LesserCleaned)
+class(LesserCleaned)
+
+#Check how many observations are in LesserCleaned 
+num_observations <- nrow(LesserCleaned)
+#Print the result - Observations are 161 
+print(paste("Number of observations in LesserCLEANED:", num_observations))
+```
+
+```{r}
+## ---- Create background (pseudo-absence) data ---------------
+#Random set of points
+set.seed(896)
+
+#Create 1000 random background points using the weights of the HI index
+hhh <- spatSample(bioRasts.usa, 1000, "weights", na.rm=TRUE, xy=T)
+class(hhh)
+
+#Plot the background points
+plot(hhh)
+points(hhh$x, hhh$y, col="red", pch=".", cex=0.25)
+```
+
+```{r}
+####Lesser Celandine Preparation for SDM####_______________________________
+#Create a vector of 1's (presence) and 0's (background / pseudo-absence)
+bvOccLC <- c(rep(1, nrow(hhh)), rep(0, nrow(hhh))) #background occurrence
+#Select cell, and x-y columns
+xyPres <- select(hhh, x, y) #presence
+xyBg <- select(hhh, x, y) #background
+#Select env columns
+envPres.x <- select(hhh, names(hhh)) 
+hhh.x <- select(hhh, names(hhh))  
+#Bind everything together into a data.frame
+sdmDataLC <- data.frame(cbind(rbind(xyPres, xyBg), # coords
+                              bvOccLC, # presence/background
+                              rbind(envPres.x, hhh.x))) # env data
+#Examine the data
+head(sdmDataLC)
+summary(sdmDataLC)
+class(sdmDataLC)
+
+```
+
+```{r}
+## ---- Assess correlation structure ---------------
+varCor <- cor(na.omit(sdmDataLC[,-c(1:3)]))
+corrplot::corrplot(varCor,order = "AOE", method="color", addCoef.col = "grey")
+ecospat.cor.plot(na.omit(sdmDataLC[,-c(1:3)]))
+```
+
+```{r}
+## ---- Create training / test datasets -----------------
+set.seed(896)
+#k-fold cross-validation partitioning
+bv.kfoldLC <- ENMeval::get.randomkfold(occs=xyPres,
+                                     bg=xyPres,
+                                     k=4) # 4 random folds, allows for a 75/25 split
+
+#Look at the structure
+str(bv.kfoldLC)
+table(bv.kfoldLC$occs.grp)
+
+#Plot the data
+evalplot.grps(pts=xyPres, pts.grp=bv.kfoldLC$occs.grp, envs=stack(bioRasts.usa))
+
+#Check the distribution of the folds
+selTrainTest <- as.numeric(unlist(bv.kfoldLC))
+table(selTrainTest)
+
+#Create a training dataset
+sdmData.trainLC <- subset(sdmDataLC, selTrainTest != 1)
+#Check the dimensions
+dim(sdmData.trainLC) #n=1750
+
+#Create a testing dataset
+sdmData.testLC <- subset(sdmDataLC, selTrainTest <= 1)
+#Remove rows with NA values 
+sdmData.testLC <- sdmData.testLC[complete.cases(sdmData.testLC), ]
+dim(sdmData.testLC) #n=1601
+#################################
+#Check for missing values in coordinates
+sum(is.na(sdmData.trainLC$x))  # Count of missing x coordinates
+sum(is.na(sdmData.trainLC$y))  # Count of missing y coordinates
+sum(is.na(sdmData.testLC$x))   # Count of missing x coordinates
+sum(is.na(sdmData.testLC$y))   # Count of missing y coordinates
+#Check for missing values
+summary(sdmData.trainLC$x)
+summary(sdmData.trainLC$y)
+#################################
+
+#Make sf versions for plotting
+sdmData.train.sf.LC <- st_as_sf(sdmData.trainLC, coords = c("x", "y"), crs=4326)
+sdmData.test.sf.LC <- st_as_sf(sdmData.testLC, coords = c("x", "y"), crs=4326)
+
+```
+
+```{r}
+## ---- Fit MaxEnt --------------------------------------------------------
+filePath <- "/Users/hannahbrunelle/Desktop/RealFinal"
+
+#Fit the MaxEnt model
+mxLC <- predicts::MaxEnt(x=bioRasts.usa, # env data as a raster stack
+                       p=xyPres, # presence data
+                       factors='bio', 
+                       path=filePath) # where to save all the output
+
+#Plot variable importance
+plot(mxLC)
+mxLC
+
+```
+
+```{r}
+## ---- Visualize the projection ------------------------
+#Project the MaxEnt model to predict invasion suitability
+invasionPotential <- predicts::predict(object = mxLC, x = bioRasts.usa)
+
+#Plot the invasion potential
+plot(invasionPotential, main = "Potential Lesser Celandine Invasion Suitability")
+```
+

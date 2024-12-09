@@ -1,0 +1,317 @@
+---
+title: "BrunelleHannahFortuneS"
+author: "Hannah Brunelle"
+date: "2024-12-09"
+output: word_document
+---
+#Final Project - Fortune's Spindle 
+#Assessing variables that may impact the distribution of invasive plants in Maryland
+#Hannah Brunelle
+
+#Note that this code can be used as a stand alone or with PlantsCombined.R and MaxEntLesserC.R
+
+```{r}
+#Load the necessary libraries for this assignment
+library(sf) 
+library(dplyr)
+library(rnaturalearth)
+library(ggplot2)
+library(terra)
+library(ENMeval) # for k-fold cross-validation
+library(dismo) # mahalanobis
+library(predicts)# maxent & sdm evaluation
+library(geodata)
+library(usdm) # for sdm
+```
+
+```{r}
+## -----Download and Prepare Species Data---------------------------------------
+#Data(INaturalist) 
+#Fortune's Spindle (Euonymus fortunei)
+#Download Data 
+FortuneS <- read.csv("/Users/hannahbrunelle/Desktop/FSpindle.csv")
+
+#Clean dataset for Fortune's Spindle
+FortuneSCleaned <- FortuneS %>%
+  # Select columns of interest
+  select(id, longitude, latitude, observed_on, positional_accuracy, scientific_name) %>%
+  # Remove rows with "Euonymus fortunei fortunei" or "Euonymus fortunei radicans"
+  filter(scientific_name != "Euonymus fortunei fortunei" &
+           scientific_name != "Euonymus fortunei radicans") %>%
+  # Remove low positional accuracy records
+  filter(positional_accuracy < 100) %>%
+  # Remove records before 2000
+  filter(observed_on > 2000) %>%
+  # Remove duplicates
+  distinct(longitude, latitude, .keep_all = TRUE) %>%
+  # Convert to sf object
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+#Load the U.S. boundaries
+usa <- rnaturalearth::ne_countries(country = "United States of America", returnclass = "sf")
+#Exclude Alaska and Hawaii based on their geographic coordinates
+usa <- st_crop(usa, xmin = -125, xmax = -66, ymin = 24, ymax = 50)
+#Retain only the geometry column
+usa <- usa["geometry"]
+
+#Plot the lower 48 states to confirm
+ggplot(data = usa) +
+  geom_sf() +
+  theme_minimal() +
+  labs(title = "United States (Lower 48)")
+
+#Plot the Fortune's Spindle data - World
+world2 <- rnaturalearth::ne_countries(scale = "medium", returnclass = "sf")
+ggplot() +
+  geom_sf(data = world2) +
+  geom_sf(data = FortuneSCleaned, aes(color = scientific_name)) +
+  theme_minimal()
+
+#Ensure the CRS matches between datasets
+usa <- st_transform(usa, st_crs(FortuneSCleaned))
+FortuneSCleaned <- st_transform(FortuneSCleaned, st_crs(usa))
+
+#Select points that fall within the United States
+FortuneSCleaned <- sf::st_intersection(FortuneSCleaned, usa)
+
+#Plot the Fortune's Spindle data - United States
+ggplot() +
+  geom_sf(data = usa, fill = "gray80", color = "white") +
+  geom_sf(data = FortuneSCleaned, color = "darkolivegreen", size = 0.5) +  
+  theme_minimal() +
+  labs(title = "Fortune's Spindle Data Points within the United States")
+```
+
+```{r}
+## -----Prepare the predictors (raster stack)-----------------------------------
+#The following workflow is as follows: 
+# 1. Download the bioclimatic variables and crop that raster to the United States polygon 
+# 2. Download the human influence data and crop that raster to the United States polygon with the bioclimatic variables 
+# 3. Download soil data for the United States and crop that data to the United States polygon with the bioclimatic and human influence data
+
+# 1.# 1. Download the bioclimatic variables and crop that raster to the United States polygon
+#Download the bioclim variables from worldclim with resolution of 5
+bioRasts <- worldclim_global(var="bio", res=5, path=getwd())
+
+#Plot bio_1 to have a look at the data
+plot(bioRasts[[1]])
+
+#Check the CRS of the rasters
+terra::crs(bioRasts, describe=T)
+#Rename the layers for convenience
+names(bioRasts) <- paste0("bio", 1:19)
+
+#Make a raster stack containing these bioclimatic variables:
+#Bio10: mean temperature of warmest quarter
+#Bio11: mean temperature of coldest quarter 
+#Bio16: precipitation of wettest quarter 
+#Bio17: precipitation of driest quarter
+bioRasts <- subset(bioRasts, c("bio10", "bio11", "bio16", "bio17"))
+
+#This is just to make sure I can get the data to plot to the world before cropping 
+#Load a global land boundaries shapefile
+world <- st_as_sf(rnaturalearth::ne_countries(scale = "medium", returnclass = "sf"))
+#Check CRS of the world shapefile, which should match the CRS of bioRasts
+crs(world, describe = TRUE)
+#Transform the world boundaries to the CRS of the bioclim rasters if they differ
+world <- st_transform(world, crs = st_crs(bioRasts))
+#Crop the raster stack to the outline of the world
+bioRasts.world <- crop(bioRasts, world, mask = TRUE)
+#Plot the cropped raster stack
+plot(bioRasts.world)
+
+#Check the CRS of the rasters
+terra::crs(bioRasts, describe=T)
+#Check CRS of the shapefile
+crs(usa, describe=T)
+#Transform usa to CRS as the bioclim rasters
+usa <- st_transform(usa, crs = st_crs(bioRasts))
+#Check the CRS of the shapefile
+st_crs(usa)
+#Check the class
+class(usa)
+
+#Crop the raster stack to the outline of the United States
+bioRasts.usa <- crop(bioRasts, usa, mask = TRUE)
+#Plot the cropped raster stack
+plot(bioRasts.usa)
+#Class 
+class(bioRasts.usa)
+
+# 2. Download the human influence data and crop that raster to the United States polygon with the bioclimatic variables
+#Load human impact raster
+HI <- rast("/Users/hannahbrunelle/Desktop/hii-n-america-geo-grid/hii_n_america_grid/hii_n_amer")
+#plot the raster
+plot(HI)
+
+#Check the CRS of the rasters
+crs(HI) #4008
+crs(bioRasts.usa) #4326
+#Re project the human influence raster to match the bioclimatic raster
+HI <- project(HI, bioRasts.usa)
+crs(HI) #4326
+
+#Check to make sure the resolution matches
+res(HI) == res(bioRasts.usa)  # Resolution match
+#Crop HI to match the extent of bioRasts.usa
+HI <- crop(HI, bioRasts.usa)
+#Mask to strictly include the United States
+HI <- mask(HI, usa)
+
+#Add HI to the bioRasts.usa raster stack
+names(HI) <- "human_influence"
+bioRasts.usa <- c(bioRasts.usa, HI)
+
+#Verify that HI was added 
+names(bioRasts.usa) #good
+plot(bioRasts.usa) #it worked! 
+
+#Reorder the layers so "human_influence" is the first
+bioRasts.usa <- bioRasts.usa[[c("human_influence", names(bioRasts.usa)[names(bioRasts.usa) != "human_influence"])]]
+
+#Verify the new order
+names(bioRasts.usa)
+plot(bioRasts.usa)
+
+
+#__________________ SOIL
+
+
+
+# Verify the CRS transformation
+crs(FortuneSCleaned)
+crs(bioRasts.usa)
+#Check dimensions
+dim(FortuneSCleaned)
+class(FortuneSCleaned)
+
+#Extract the environmental values at each of the occurrence locations.
+FortuneSCleaned <- terra::extract(bioRasts.usa, FortuneSCleaned, cells=TRUE, xy=TRUE) %>%
+  #remove spatial duplicates
+  distinct(cell, .keep_all = TRUE)
+
+#Check the data
+head(FortuneSCleaned)
+dim(FortuneSCleaned)
+class(FortuneSCleaned)
+
+#Check how many observations are in FortuneSCleaned
+num_observations <- nrow(FortuneSCleaned)
+#Print the result - Observations are 149
+print(paste("Number of observations in FortuneSCleaned:", num_observations))
+```
+
+
+```{r}
+## ---- Create background (pseudo-absence) data --------------------------------
+#Random set of points
+set.seed(896)
+
+#Create 1000 random background points using the weights of the HI index
+FSS <- spatSample(bioRasts.usa, 1000, "weights", na.rm=TRUE, xy=T)
+class(FSS)
+
+#Plot the background points
+plot(FSS)
+points(FSS$x, FSS$y, col="red", pch=".", cex=0.70)
+
+####Fortune's Spindle Preparation for SDM####_____________________________________####_____________________________________####
+#Create a vector of 1's (presence) and 0's (background / pseudo-absence)
+bvOccFS <- c(rep(1, nrow(FSS)), rep(0, nrow(FSS)))
+#Select cell, and x-y columns
+xyPresFS <- select(FSS, x, y) #presence
+xyBgFS <- select(FSS, x, y) #background
+#Select env columns
+envPres.xFS <- select(FSS, names(FSS))
+envBg.xFS <- select(FSS, names(FSS))
+#Bind everything together into a data.frame
+sdmDataFS <- data.frame(cbind(rbind(xyPresFS, xyBgFS), # coords
+                              bvOccFS, # presence/background
+                              rbind(envPres.xFS, envBg.xFS))) # env data
+#Examine the data
+head(sdmDataFS)
+summary(sdmDataFS)
+class(sdmDataFS)
+```
+
+```{r}
+## ---- Assess correlation structure -------------------------------------------
+varCorFS <- cor(na.omit(sdmDataFS[,-c(1:3)]))
+corrplot::corrplot(varCorFS,order = "AOE", method="color", addCoef.col = "grey")
+ecospat.cor.plot(na.omit(sdmDataFS[,-c(1:3)]))
+```
+
+```{r}
+## ---- Create training / test datasets ----------------------------------------
+set.seed(896)
+#k-fold cross-validation partitioning
+bv.kfoldFS <- ENMeval::get.randomkfold(occs=xyPresFS,
+                                       bg=xyPresFS,
+                                       k=4) # 4 random folds, allows for a 75/25 split
+
+#Look at the structure
+str(bv.kfoldFS)
+table(bv.kfoldFS$occs.grp)
+
+#Plot the data
+evalplot.grps(pts=xyPresFS, pts.grp=bv.kfoldFS$occs.grp, envs=stack(bioRasts.usa))
+
+#heck the distribution of the folds
+selTrainTestFS <- as.numeric(unlist(bv.kfoldFS))
+table(selTrainTestFS)
+
+#Create a training dataset
+sdmData.trainFS <- subset(sdmDataFS, selTrainTestFS != 1)
+#Remove rows with NA values 
+sdmData.trainFS <- sdmData.trainFS[complete.cases(sdmData.trainFS), ]
+dim(sdmData.trainFS) #n=1750
+
+#Create a testing dataset
+sdmData.testFS <- subset(sdmDataFS, selTrainTestFS <= 1)
+#Remove rows with NA values 
+sdmData.testFS <- sdmData.testFS[complete.cases(sdmData.testFS), ]
+dim(sdmData.testFS) #n=150
+
+#################################
+#Check for missing values in coordinates
+sum(is.na(sdmData.trainFS$x))  # Count of missing x coordinates
+sum(is.na(sdmData.trainFS$y))  # Count of missing y coordinates
+sum(is.na(sdmData.testFS$x))   # Count of missing x coordinates
+sum(is.na(sdmData.testFS$y))   # Count of missing y coordinates
+#Check for missing values
+summary(sdmData.trainFS$x)
+summary(sdmData.trainFS$y)
+#################################
+
+#Make sf versions for plotting
+sdmData.train.sf.FS <- st_as_sf(sdmData.trainFS, coords = c("x", "y"), crs=4326)
+sdmData.test.sf.FS <- st_as_sf(sdmData.testFS, coords = c("x", "y"), crs=4326)
+```
+
+```{r}
+## ---- Fit MaxEnt -------------------------------------------------------------
+filePath <- "/Users/hannahbrunelle/Desktop/RealFinal"
+
+#Fit the MaxEnt model
+mxFS <- predicts::MaxEnt(x=bioRasts.usa, # env data as a raster stack
+                         p=xyPresFS, # presence data
+                         factors='bio', # biome is categorical
+                         path=filePath) # where to save all the output
+
+#Plot variable importance
+plot(mxFS)
+mxFS
+```
+
+```{r}
+## ---- Visualize the projection -----------------------------------------------
+#Project the MaxEnt model to predict invasion suitability
+invasionPotentialFS <- predicts::predict(object = mxFS, x = bioRasts.usa)
+
+#Plot the invasion potential
+plot(invasionPotentialFS, main = "Potential Fortune's Spindle Invasion Suitability")
+```
+
+
+
+
